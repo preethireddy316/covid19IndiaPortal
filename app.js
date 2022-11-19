@@ -45,36 +45,30 @@ app.post("/login/", async (request, response) => {
   const getUserQuery = `SELECT * FROM user WHERE username ='${username}'`;
 
   const user = await db.get(getUserQuery)
-  let hashedPass=""
-  if(user!==undefined){
-    hashedPass = user.password
-  }
-const isPassValid = await bcrypt.compare(password,hashedPass)
-
-switch(true){
-    case user===undefined:
-        response.send("Invalid user")
+if(user===undefined){
+    response.status(400)
+     response.send("Invalid user")
+}else{
+    const hashedPass = user.password
+    const isPassValid = await bcrypt.compare(password,hashedPass)
+    if(!isPassValid){
         response.status(400)
-        break;
-    case user!==undefined && isPassValid!==true:
         response.send("Invalid password")
-        response.status(400)
-        break;
-    case isPassValid===true && user!==undefined:
+    }
+    else{
         const payload={username}
-        const jwtToken = await jwt.sign(payload,"my_secret_token")
-        response.send({jwt_token :jwtToken})
-        break;
-    default:
-        response.send("")
+        const jwtToken = await jwt.sign(payload,"secret")
+        console.log(jwtToken)
+        response.send({jwtToken:jwtToken})
+    }
 }
 });
 
-const authenticateToken   =  (request,response,next)=>{
+const authenticateToken   =  async (request,response,next)=>{
    let jwtToken
-    const authHeader = request.headers["authorization"]
+    const authHeader = await request.headers["authorization"]
     if(authHeader!==undefined){
-        jwtToken = authHeader.split(" ")[1]
+        jwtToken = await authHeader.split(" ")[1]
         console.log(jwtToken)
     }
     if(jwtToken===undefined){
@@ -84,7 +78,7 @@ const authenticateToken   =  (request,response,next)=>{
         console.log("token not available")
     }
     else{
-        jwt.verify(jwtToken,"MY_SECRET_TOKEN",(error,payload)=>{
+        await jwt.verify(jwtToken,"secret",(error,payload)=>{
         if(error){
              response.status(401)
             response.send("Invalid JWT Token")
@@ -118,10 +112,20 @@ app.post("/districts/",authenticateToken,async (request,response)=>{
     const updateQuery=`INSERT INTO district (district_name,state_id,cases,cured,active,deaths)
      VALUES ('${districtName}',${stateId},${cases},${cured},${active},${deaths})`
    const dist = await db.run(updateQuery)
-   response.send(dist)
       response.send("District Successfully Added")
-
 })
+
+
+app.put("/districts/:districtId/",authenticateToken,async (request,response)=>{
+  const {districtId}=request.params
+    const {districtName,stateId,cases,cured,active,deaths}=request.body
+    const updateQuery=`UPDATE district SET district_name='${districtName}',state_id=${stateId},cases=${cases},cured =${cured},active=${active},deaths=${deaths}
+   WHERE district_id=${districtId}`
+    const dist = await db.run(updateQuery)
+    response.send("District Details Updated")
+})
+
+
 //get specific district
 app.get("/districts/:districtId/",authenticateToken,async (request,response)=>{
    const {districtId}=request.params
@@ -132,20 +136,19 @@ app.get("/districts/:districtId/",authenticateToken,async (request,response)=>{
 })
 
 //delete a district
-app.get("/districts/:districtId/",authenticateToken,async (request,response)=>{
+app.delete("/districts/:districtId/",authenticateToken,async (request,response)=>{
    const {districtId}=request.params
-    const deleteQuery=`DELETE FROM district WHERE ;
-district_id=${districtId}`
+    const deleteQuery=`DELETE FROM district 
+    WHERE district_id=${districtId}`
    const district = await db.run(deleteQuery)
-   response.send(district)
       response.send("District Removed")
 })
 
 app.get("/states/:stateId/stats/",authenticateToken,async (request,response)=>{
    const {stateId}=request.params
-    const Query=`SELECT sum(cases) as totalCases,sum(cured) as totalCured,sum(active) as totalActive,sum(deaths) as totalDeaths FROM district
-     WHERE state_id=${stateId}`
-   const stats = await db.all(Query)
+    const Query=`SELECT sum(cases) as totalCases,sum(cured) as totalCured,sum(active) as totalActive,sum(deaths) as totalDeaths 
+    FROM district WHERE state_id=${stateId} GROUP BY state_id`
+   const stats = await db.get(Query)
    response.send(stats)
 })
 
